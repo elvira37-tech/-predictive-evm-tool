@@ -22,26 +22,17 @@ class ConstructionNN(nnx.Module):
         # Softplus prevents negative numbers while allowing high positive values
         return jax.nn.softplus(x)
 
-import os
-from pathlib import Path
-
 @st.cache_resource
 def load_assets():
-    model_path = Path(__file__).parent / "project_model.pkl"
-    if not model_path.exists():
-        st.error(f"❌ File not found: {model_path.absolute()}")
-        st.info(f"Files in directory: {os.listdir(Path(__file__).parent)}")
-        return None, None
     try:
-        assets = joblib.load(model_path)
+        assets = joblib.load("project_model.pkl")
         # Initialize model structure with correct dimensions
         model = ConstructionNN(len(assets['param_cols']), 10, nnx.Rngs(0)) # output_dim is 10 (5 costs, 5 days)
         # Load the saved state
         nnx.update(model, assets['model_state'])
         return model, assets
     except Exception as e:
-        st.error(f"❌ Error loading assets: {e}")
-        st.exception(e) # This will show the full traceback in the app
+        st.error(f"Error loading assets: {e}")
         return None, None
 
 model, assets = load_assets()
