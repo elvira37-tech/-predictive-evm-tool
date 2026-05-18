@@ -3,8 +3,9 @@ pandas
 numpy
 joblib
 plotly
-flax
-jax
-jaxlib
+flax>=0.8.4
+jax>=0.4.28
+jaxlib>=0.4.28
 optax
 matplotlib
+scikit-learn
