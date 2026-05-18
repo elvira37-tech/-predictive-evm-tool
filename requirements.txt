@@ -1,0 +1,10 @@
+streamlit
+pandas
+numpy
+joblib
+plotly
+flax
+jax
+jaxlib
+optax
+matplotlib
