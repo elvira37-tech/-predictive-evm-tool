@@ -111,7 +111,9 @@ if assets:
 
         days_planned_cum, pv_points = [0], [0]
         reality_days, reality_costs, ev_points = [0], [0], [0]
-        pv_acc, cur_ev = 0, 0
+        pv_acc, cur_ev, cur_ac = 0, 0, 0
+        
+        table_rows = []
 
         for i, name in enumerate(phases_list):
             ec, ed = total_cost * c_weights[i], int(round(total_time * t_weights[i]))
@@ -122,16 +124,49 @@ if assets:
             if i in actual_data:
                 ac, ad = actual_data[i]['cost'], actual_data[i]['time']
                 cur_ev += ec
+                cur_ac += ac
+                status = "Actual"
             else:
                 ac, ad = pred_costs[i], int(round(pred_days[i]))
+                status = "AI Prediction"
             
             reality_days.append(reality_days[i] + ad)
             reality_costs.append(reality_costs[i] + ac)
             if i < completed_phases_count: ev_points.append(cur_ev)
+            
+            table_rows.append({
+                "Phase": name,
+                "Status": status,
+                "Planned Cost (€)": f"{ec:,.0f}",
+                "Final Cost (€)": f"{ac:,.0f}",
+                "Planned Days": ed,
+                "Final Days": ad
+            })
 
+        # --- PART 4: METRICS & VISUALIZATION ---
+        st.header("Analysis Results")
+        
+        m1, m2, m3, m4 = st.columns(4)
+        
+        # Calculate CPI and SPI
+        cpi = cur_ev / cur_ac if cur_ac > 0 else 1.0
+        # For SPI, we use PV at current time, but simpler approximation is EV / PV_acc of completed
+        spi = cur_ev / pv_points[completed_phases_count] if completed_phases_count > 0 else 1.0
+        
+        m1.metric("CPI (Cost Performance)", f"{cpi:.2f}", delta=f"{cpi-1:.2f}", delta_color="normal")
+        m2.metric("SPI (Schedule Performance)", f"{spi:.2f}", delta=f"{spi-1:.2f}", delta_color="normal")
+        m3.metric("Projected Total Cost", f"€{reality_costs[-1]:,.0f}")
+        m4.metric("Projected Total Days", f"{reality_days[-1]} Days")
+
+        st.subheader("Performance Trends")
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=days_planned_cum, y=pv_points, name='Planned (PV)', line=dict(dash='dot')))
-        fig.add_trace(go.Scatter(x=reality_days[:completed_phases_count+1], y=reality_costs[:completed_phases_count+1], name='Actual (AC)', line=dict(width=3)))
-        fig.add_trace(go.Scatter(x=reality_days[:completed_phases_count+1], y=ev_points, name='Earned (EV)', line=dict(width=3)))
-        fig.add_trace(go.Scatter(x=reality_days[completed_phases_count:], y=reality_costs[completed_phases_count:], name='Forecast', line=dict(dash='dash')))
-        st.plotly_chart(fig, width='stretch')
+        fig.add_trace(go.Scatter(x=reality_days[:completed_phases_count+1], y=reality_costs[:completed_phases_count+1], name='Actual (AC)', line=dict(width=3, color='red')))
+        fig.add_trace(go.Scatter(x=reality_days[:completed_phases_count+1], y=ev_points, name='Earned (EV)', line=dict(width=3, color='green')))
+        fig.add_trace(go.Scatter(x=reality_days[completed_phases_count:], y=reality_costs[completed_phases_count:], name='Forecast', line=dict(dash='dash', color='orange')))
+        
+        fig.update_layout(xaxis_title="Days", yaxis_title="Cumulative Cost (€)", height=500)
+        st.plotly_chart(fig, use_container_width=True)
+        
+        st.subheader("Phase-by-Phase Prediction Summary")
+        st.table(pd.DataFrame(table_rows))
