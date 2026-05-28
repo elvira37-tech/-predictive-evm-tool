@@ -5,30 +5,25 @@ import joblib
 import plotly.graph_objects as go
 from flax import nnx
 import jax.numpy as jnp
-import jax # Add this line to import jax
+import jax
 
 # --- 1. MODEL RECONSTRUCTION ---
-# This must match your Training Script architecture exactly
 class ConstructionNN(nnx.Module):
     def __init__(self, input_dim, output_dim, rngs):
-        # Changed hidden layer sizes and activation functions to match the training script
         self.linear1 = nnx.Linear(input_dim, 128, rngs=rngs)
         self.linear2 = nnx.Linear(128, 64, rngs=rngs)
         self.linear3 = nnx.Linear(64, output_dim, rngs=rngs)
+
     def __call__(self, x):
         x = nnx.silu(self.linear1(x))
         x = nnx.silu(self.linear2(x))
-        x = self.linear3(x)
-        # Softplus prevents negative numbers while allowing high positive values
-        return jax.nn.softplus(x)
+        return jax.nn.softplus(self.linear3(x))
 
 @st.cache_resource
 def load_assets():
     try:
         assets = joblib.load("project_model.pkl")
-        # Initialize model structure with correct dimensions
-        model = ConstructionNN(len(assets['param_cols']), 10, nnx.Rngs(0)) # output_dim is 10 (5 costs, 5 days)
-        # Load the saved state
+        model = ConstructionNN(len(assets['param_cols']), 12, nnx.Rngs(42))
         nnx.update(model, assets['model_state'])
         return model, assets
     except Exception as e:
@@ -38,189 +33,100 @@ def load_assets():
 model, assets = load_assets()
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="Predictive EVM Tool", layout="wide")
-st.title("🏗️ Predictive Earned Value Management")
-st.markdown("--- ---")
+st.set_page_config(page_title="Predictive EVM Dashboard", layout="wide")
+st.title("🏗️ Time-Phased Predictive EVM Dashboard")
+st.markdown("---")
 
 if assets:
     # --- PART 1: PROJECT PARAMETERS ---
-    st.sidebar.header("1. Project Scope")
-    proj_type = st.sidebar.selectbox("Project Type", ['Building', 'Power Plant', 'Road', 'Bridge', 'Water Infra'])
-    area = st.sidebar.number_input("Engineered Area (m²)", min_value=1.0, value=5000.0)
-    est_cost = st.sidebar.number_input("Total Target Budget (€)", min_value=1000.0, value=1000000.0)
-    est_time = st.sidebar.number_input("Total Target Days", min_value=1, value=300)
+    st.sidebar.header("1. Scope & Geometrical Parameters")
+    building_type = st.sidebar.selectbox("Building Type", ['Industrial warehouse', 'Office building', 'Residential building', 'Residential house'])
+    area_m2 = st.sidebar.number_input("Total Area (m²)", min_value=1.0, value=1000.0)
+    num_floors = st.sidebar.number_input("Number of Floors", min_value=1, value=3, step=1)
+    floor_height = st.sidebar.number_input("Floor Height (m)", min_value=1.0, value=3.5)
+    total_cost = st.sidebar.number_input("Estimated Cost (€)", min_value=1000.0, value=1500000.0)
+    total_time = st.sidebar.number_input("Estimated Duration (Days)", min_value=1, value=200, step=1)
 
-    st.sidebar.markdown("--- ---")
-    st.sidebar.header("2. Risk & Complexity")
-    # Use a simpler map for complexity for input selection, then convert to one-hot
-    comp_label = st.sidebar.select_slider("Complexity", options=["Low", "Medium", "High"], value="Medium")
-    risk = st.sidebar.slider("Risk Assessment Score", 0, 100, 50)
-    res_score = st.sidebar.slider("Resource Allocation Score", 0, 100, 50)
+    cost_floor_rates = {'Office building': 1200.0, 'Industrial warehouse': 600.0, 'Residential building': 1400.0, 'Residential house': 1100.0}
+    time_floor_rates = {'Office building': 0.15, 'Industrial warehouse': 0.08, 'Residential building': 0.18, 'Residential house': 0.12}
+
+    min_logical_cost = area_m2 * cost_floor_rates.get(building_type, 1000.0)
+    min_logical_time = int(round(area_m2 * time_floor_rates.get(building_type, 0.1)))
+    if min_logical_time < 30: min_logical_time = 30
+
+    if total_cost < min_logical_cost or total_time < min_logical_time:
+        st.error(f"⚠️ **Input Threshold Breach!** Values are physically unfeasible for a **{building_type}** measuring **{area_m2:,.1f} m²**.")
 
     # --- PART 2: COMPLETION STATUS ---
-    st.header("Project Progress")
-    stages = ["Site Preparation", "Foundation", "Structures", "Systems", "Finishes"]
-    cols = st.columns(len(stages))
-    actual_data = {}
-    completed_stages_count = 0
+    st.header("Project Progress Status")
+    phases_list = ["Site Work", "Substructure", "Superstructure", "Envelope", "MEP", "Finishes"]
 
-    for i, stage in enumerate(stages):
+    cols = st.columns(len(phases_list))
+    actual_data = {}
+    completed_phases_count = 0
+    
+    # Validation Logic for Sequential Selection matching Preview App behavior
+    for i, phase in enumerate(phases_list):
         with cols[i]:
-            st.subheader(stage)
+            st.subheader(phase)
             is_done = st.checkbox("Done", key=f"done_{i}")
+            
             if is_done:
-                completed_stages_count += 1
-                act_c = st.number_input("Act. Cost (€)", key=f"c_{i}", min_value=0.0, value=0.0)
-                act_t = st.number_input("Act. Days", key=f"t_{i}", min_value=0, step=1, value=0)
-                actual_data[i] = {"cost": act_c, "time": int(act_t)}
+                # Check if all previous phases are done
+                prev_missing = []
+                for prev_idx in range(i):
+                    if not st.session_state.get(f"done_{prev_idx}", False):
+                        prev_missing.append(phases_list[prev_idx])
+                
+                if prev_missing:
+                    st.warning(f"⚠️ Non-Sequential! Complete **{prev_missing[0]}** first.")
+                else:
+                    completed_phases_count += 1
+                    act_c = st.number_input("Act. Cost (€)", key=f"c_{i}", min_value=0.0, value=total_cost * (1/6))
+                    act_t = st.number_input("Act. Days", key=f"t_{i}", min_value=1, step=1, value=int(round(total_time * (1/6))))
+                    actual_data[i] = {"cost": act_c, "time": int(act_t)}
 
     # --- PART 3: ANALYSIS ENGINE ---
     if st.button("📈 RUN PREDICTIVE ANALYSIS", type="primary"):
-        # 1. Encodings for Project Type and Complexity (one-hot)
-        proj_vec = [0] * len(assets['encoded_project_cols'])
-        try:
-            proj_idx = assets['encoded_project_cols'].index(f"Proj_{proj_type}")
-            proj_vec[proj_idx] = 1
-        except ValueError: pass
+        avg_cost_global = assets.get('avg_cost_weights_global', [1/6]*6)
+        avg_time_global = assets.get('avg_time_weights', [1/6]*6)
+        c_weights = assets.get('type_cost_weights', {}).get(building_type, avg_cost_global)
+        t_weights = assets.get('type_time_weights', {}).get(building_type, avg_time_global)
 
-        comp_vec = [0] * len(assets['encoded_complexity_cols'])
-        # Map comp_label string to numeric then to one-hot column name
-        complexity_map_for_onehot = {"Low": 1, "Medium": 2, "High": 3}
-        c_map_internal = {1: 'Comp_Low', 2: 'Comp_Medium', 3: 'Comp_High'}
-        complexity_numeric_val = complexity_map_for_onehot[comp_label]
-        try:
-            comp_idx = assets['encoded_complexity_cols'].index(c_map_internal[complexity_numeric_val])
-            comp_vec[comp_idx] = 1
-        except ValueError: pass
+        proj_vec = [1 if c == f"Type_{building_type}" else 0 for c in assets['encoded_project_cols']]
+        scaled_costs = [total_cost * avg_cost_global[idx] * assets.get('global_overrun_avg', 1.0) for idx in range(6)]
+        core_cont = [area_m2, num_floors, floor_height, total_cost, total_time]
+        
+        if len(assets['param_cols']) == 15: full_input = proj_vec + core_cont + scaled_costs
+        else: full_input = proj_vec + core_cont + [total_cost * c_weights[idx] for idx in range(6)] + [total_time * t_weights[idx] for idx in range(6)] + scaled_costs
 
-        # 2. Engineered Features (matching Preview App's logic)
-        overrun_adj = assets.get('global_overrun_avg', 1.0)
-        # These internal names are used to query type_risk_distribution from joblib assets
-        internal_output_names = ['Site_Prep_Actual_Cost', 'Foundations_Actual_Cost', 'Structure_Actual_Cost', 'Systems_Actual_Cost', 'Finishing_Actual_Cost']
+        features = (np.array(full_input).astype(np.float32) - assets['params_min']) / assets['params_range']
+        nn_res = np.array(model(jnp.array([features]))[0]) * assets['output_range'] + assets['output_min']
+        pred_costs, pred_days = nn_res[:6], nn_res[6:]
 
-        e_costs, e_risks = [], []
-        for i in range(5):
-            # est_cost here is the total project budget from sidebar
-            e_costs.append(est_cost * assets['avg_cost_weights'][i] * overrun_adj)
-            # type_risk_distribution holds average stage cost contribution per project type
-            risk_factor = assets['type_risk_distribution'].get(proj_type, {}).get(internal_output_names[i], 0.2)
-            e_risks.append(risk * risk_factor) # 'risk' is from the slider
+        days_planned_cum, pv_points = [0], [0]
+        reality_days, reality_costs, ev_points = [0], [0], [0]
+        pv_acc, cur_ev = 0, 0
 
-        # 3. Assemble full input matching 'param_cols' order from training script
-        core_cont_inputs = [area, res_score, est_time]
-        full_input_list = proj_vec + comp_vec + core_cont_inputs + e_costs + e_risks
+        for i, name in enumerate(phases_list):
+            ec, ed = total_cost * c_weights[i], int(round(total_time * t_weights[i]))
+            pv_acc += ec
+            days_planned_cum.append(days_planned_cum[-1] + ed)
+            pv_points.append(pv_acc)
 
-        # Normalize and predict
-        features = (np.array(full_input_list).astype(np.float32) - assets['params_min']) / assets['params_range']
-        prediction = model(jnp.array([features]))[0]
-        nn_res = np.array(prediction) * assets['output_range'] + assets['output_min']
-
-        # Apply non-negative constraints to predictions
-        pred_costs = np.maximum(0, nn_res[:5])
-        pred_days = np.maximum(1, nn_res[5:]) # Ensure days are at least 1
-
-        # --- EVM Calculation and Plotting Logic (matching Preview App) ---
-        pv_acc_total = 0 # Cumulative Planned Value for the entire project baseline
-        days_planned_cumulative = [0] # Cumulative planned days for baseline S-curve
-        pv_points = [0] # Cumulative planned cost for baseline S-curve
-
-        ev_total = 0 # Earned Value for completed stages
-        ac_total = 0 # Actual Cost for completed stages
-
-        reality_days_plot = [0] # Cumulative days for the reality line (actual + forecast)
-        reality_costs_plot = [0] # Cumulative costs for the reality line (actual + forecast)
-
-        table_rows_data = [] # Data for the stage breakdown table
-
-        for i, stage_name in enumerate(stages):
-            # Planned values for this stage
-            est_c_stage = est_cost * assets['avg_cost_weights'][i]
-            est_d_stage = int(round(est_time * assets['avg_time_weights'][i]))
-
-            # Update total planned S-curve
-            pv_acc_total += est_c_stage
-            days_planned_cumulative.append(days_planned_cumulative[-1] + est_d_stage)
-            pv_points.append(pv_acc_total)
-
-            current_stage_val_c = 0.0
-            current_stage_val_d = 0
-            status_type = ""
-
-            if i in actual_data: # Stage is marked as 'Done' in the UI
-                current_stage_val_c = actual_data[i]['cost']
-                current_stage_val_d = actual_data[i]['time']
-                ev_total += est_c_stage # EV is the planned cost of the work performed
-                ac_total += current_stage_val_c # AC is the actual cost incurred
-                status_type = "Actual"
+            if i in actual_data:
+                ac, ad = actual_data[i]['cost'], actual_data[i]['time']
+                cur_ev += ec
             else:
-                current_stage_val_c = float(pred_costs[i])
-                current_stage_val_d = int(round(pred_days[i]))
-                status_type = "NN Prediction"
+                ac, ad = pred_costs[i], int(round(pred_days[i]))
+            
+            reality_days.append(reality_days[i] + ad)
+            reality_costs.append(reality_costs[i] + ac)
+            if i < completed_phases_count: ev_points.append(cur_ev)
 
-            # Update reality line
-            reality_days_plot.append(reality_days_plot[-1] + current_stage_val_d)
-            reality_costs_plot.append(reality_costs_plot[-1] + current_stage_val_c)
-
-            table_rows_data.append({
-                "Stage": stage_name,
-                "Type": status_type,
-                "Est. Cost (€)": f"{est_c_stage:,.0f}",
-                "Est. Days": est_d_stage,
-                "Actual/Pred Cost (€)": f"{current_stage_val_c:,.0f}",
-                "Actual/Pred Days": current_stage_val_d
-            })
-
-        # --- Corrected Metrics ---
-        eac_final_cost = reality_costs_plot[-1] # EAC is the end of the Predictive reality line
-        cpi = ev_total / ac_total if ac_total > 0 else 1.0
-
-        # Calculate PV for completed stages specifically for SPI (as per Preview app's logic)
-        pv_completed_for_spi = 0
-        for k in range(completed_stages_count):
-             pv_completed_for_spi += est_cost * assets['avg_cost_weights'][k]
-        spi = ev_total / pv_completed_for_spi if pv_completed_for_spi > 0 else 1.0
-
-        # --- PART 4: DISPLAY METRICS ---
-        k1, k2, k3 = st.columns(3)
-        k1.metric("CPI (Cost Efficiency)", f"{cpi:.2f}")
-        k2.metric("SPI (Schedule Efficiency)", f"{spi:.2f}")
-        k3.metric("EAC (Forecasted Total)", f"€{eac_final_cost:,.0f}")
-
-        # --- Plotly S-Curve (matching Preview App visualization) ---
         fig = go.Figure()
-
-        # Planned Value (Baseline)
-        fig.add_trace(go.Scatter(x=days_planned_cumulative, y=pv_points, name="Planned Value (Baseline)", line=dict(color='blue', dash='dot')))
-
-        # Actual Cost (red solid line for completed stages)
-        fig.add_trace(go.Scatter(x=reality_days_plot[:completed_stages_count+1], y=reality_costs_plot[:completed_stages_count+1],
-                                 name="Actual (Spend)", mode='lines+markers', line=dict(color='red', width=3)))
-
-        # AI Predictive Forecast (red dashed line for remaining stages)
-        if completed_stages_count < len(stages):
-            fig.add_trace(go.Scatter(x=reality_days_plot[completed_stages_count:], y=reality_costs_plot[completed_stages_count:],
-                                     name="AI Predictive Forecast", line=dict(color='red', dash='dash', width=2)))
-
-        # Earned Value (green line for completed stages)
-        # EV should track the PV of completed work
-        ev_plot_points = [0]
-        cumulative_planned_cost_for_ev_plot = 0
-        for k in range(completed_stages_count):
-             cumulative_planned_cost_for_ev_plot += est_cost * assets['avg_cost_weights'][k]
-        ev_plot_points.append(cumulative_planned_cost_for_ev_plot)
-
-        # Days for EV plot should follow the actual_days for completed stages up to the status date
-        ev_days_plot = reality_days_plot[:completed_stages_count+1]
-        if len(ev_days_plot) > 0:
-            fig.add_trace(go.Scatter(x=ev_days_plot, y=ev_plot_points, name="Earned Value", mode='lines+markers', line=dict(color='green', width=3)))
-
-
-        fig.update_layout(title="Predictive EVM Analysis: Budget vs. AI Reality", xaxis_title="Days", yaxis_title="Cost (€)", height=500, width=700)
-        st.plotly_chart(fig, width='stretch') # Changed use_container_width=True to width='stretch'
-
-        # --- Stage Breakdown Table ---
-        st.markdown("--- ---")
-        st.subheader("Stage-wise Breakdown")
-        st.table(pd.DataFrame(table_rows_data))
-else:
-    st.warning("Awaiting Model Assets. Please ensure 'project_model.pkl' exists and is loaded successfully.")
+        fig.add_trace(go.Scatter(x=days_planned_cum, y=pv_points, name='Planned (PV)', line=dict(dash='dot')))
+        fig.add_trace(go.Scatter(x=reality_days[:completed_phases_count+1], y=reality_costs[:completed_phases_count+1], name='Actual (AC)', line=dict(width=3)))
+        fig.add_trace(go.Scatter(x=reality_days[:completed_phases_count+1], y=ev_points, name='Earned (EV)', line=dict(width=3)))
+        fig.add_trace(go.Scatter(x=reality_days[completed_phases_count:], y=reality_costs[completed_phases_count:], name='Forecast', line=dict(dash='dash')))
+        st.plotly_chart(fig, width='stretch')
