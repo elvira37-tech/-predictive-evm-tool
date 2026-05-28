@@ -24,10 +24,15 @@ def load_assets():
     try:
         assets = joblib.load("project_model.pkl")
         model = ConstructionNN(len(assets['param_cols']), 12, nnx.Rngs(42))
-        nnx.update(model, assets['model_state'])
+        
+        state = assets['model_state']
+        # If the state is a pure dict (from to_pure_dict()), it's safer for cross-version compatibility
+        nnx.update(model, state)
+        
         return model, assets
     except Exception as e:
         st.error(f"Error loading assets: {e}")
+        st.info("💡 **Tip:** This error often occurs due to a version mismatch in the saved model file. Try re-running the training script `pm_project.py` to regenerate `project_model.pkl` with your current library versions.")
         return None, None
 
 model, assets = load_assets()
