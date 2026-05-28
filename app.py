@@ -207,8 +207,11 @@ if assets:
         
         # Calculate CPI and SPI
         cpi = cur_ev / cur_ac if cur_ac > 0 else 1.0
-        # For SPI, we use PV at current time, but simpler approximation is EV / PV_acc of completed
-        spi = cur_ev / pv_points[completed_phases_count] if completed_phases_count > 0 else 1.0
+        
+        # SPI(t) = Planned Time of Completed Phases / Actual Time of Completed Phases
+        planned_time_at_cutoff = days_planned_cum[completed_phases_count]
+        actual_time_at_cutoff = reality_days[completed_phases_count]
+        spi = planned_time_at_cutoff / actual_time_at_cutoff if actual_time_at_cutoff > 0 else 1.0
         
         m1.metric("CPI (Cost Performance)", f"{cpi:.2f}", delta=f"{cpi-1:.2f}", delta_color="normal")
         m2.metric("SPI (Schedule Performance)", f"{spi:.2f}", delta=f"{spi-1:.2f}", delta_color="normal")
