@@ -1,4 +1,4 @@
-# Time-Phased Predictive EVM Dashboard 🏗️
+# AI Forecast Earned Value Management Tool 🏗️
 
 This project provides a predictive Earned Value Management (EVM) dashboard for construction projects using a Neural Network model.
 

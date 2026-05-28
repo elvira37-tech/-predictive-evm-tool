@@ -38,8 +38,8 @@ def load_assets():
 model, assets = load_assets()
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="Predictive EVM Dashboard", layout="wide")
-st.title("🏗️ Time-Phased Predictive EVM Dashboard")
+st.set_page_config(page_title="AI Forecast Earned Value Management Tool", layout="wide")
+st.title("🏗️ AI Forecast Earned Value Management Tool")
 st.markdown("---")
 
 if assets:
