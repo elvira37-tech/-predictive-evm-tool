@@ -173,33 +173,6 @@ if assets:
         cum_ac_daily = np.cumsum(daily_ac_rate)
         cum_ev_daily = np.cumsum(daily_ev_rate)
         
-        total_project_weeks = int(np.ceil(max_timeline_days / 7))
-        weekly_ticks = list(range(1, total_project_weeks + 1))
-        weekly_cpi, weekly_spi = [], []
-        
-        for w in weekly_ticks:
-            day_idx = min(w * 7, max_timeline_days)
-            w_pv, w_ac, w_ev = cum_pv_daily[day_idx], cum_ac_daily[day_idx], cum_ev_daily[day_idx]
-            
-            # CPI
-            w_cpi = w_ev / w_ac if w_ac > 0 else 1.0
-            
-            # SPI (Earned Schedule approach)
-            if w_ev >= cum_pv_daily[-1]:
-                earned_schedule_days = total_planned_days
-            else:
-                pv_match_idx = np.where(cum_pv_daily >= w_ev)[0]
-                earned_schedule_days = pv_match_idx[0] if len(pv_match_idx) > 0 else day_idx
-            w_spi = earned_schedule_days / day_idx if day_idx > 0 else 1.0
-            
-            # Simple heuristic if no work started
-            if completed_phases_count == 0:
-                w_cpi = 1.0 - (0.04 * (day_idx / max_timeline_days))
-                w_spi = 1.0 - (0.07 * (day_idx / max_timeline_days))
-                
-            weekly_cpi.append(np.clip(w_cpi, 0.7, 1.3))
-            weekly_spi.append(np.clip(w_spi, 0.7, 1.3))
-
         # --- PART 4: METRICS & VISUALIZATION ---
         st.header("Analysis Results")
         
@@ -228,26 +201,5 @@ if assets:
         fig.update_layout(xaxis_title="Days", yaxis_title="Cumulative Cost (€)", height=500)
         st.plotly_chart(fig, use_container_width=True)
 
-        st.subheader("CPI and SPI Continuous Lifecycle Performance Trends")
-        fig2 = go.Figure()
-        
-        cutoff_week = int(np.ceil((reality_days[completed_phases_count] if completed_phases_count > 0 else 0) / 7))
-        
-        if cutoff_week > 0:
-            # Actual (Solid)
-            fig2.add_trace(go.Scatter(x=weekly_ticks[:cutoff_week], y=weekly_cpi[:cutoff_week], name='Actual CPI', line=dict(color='#1a237e', width=3), marker=dict(symbol='circle')))
-            fig2.add_trace(go.Scatter(x=weekly_ticks[:cutoff_week], y=weekly_spi[:cutoff_week], name='Actual SPI', line=dict(color='#ad1457', width=3), marker=dict(symbol='square')))
-            # Forecast (Dashed)
-            fig2.add_trace(go.Scatter(x=weekly_ticks[cutoff_week-1:], y=weekly_cpi[cutoff_week-1:], name='Predicted CPI', line=dict(color='#1a237e', width=2, dash='dash'), marker=dict(symbol='circle-open')))
-            fig2.add_trace(go.Scatter(x=weekly_ticks[cutoff_week-1:], y=weekly_spi[cutoff_week-1:], name='Predicted SPI', line=dict(color='#ad1457', width=2, dash='dash'), marker=dict(symbol='square-open')))
-            fig2.add_vline(x=cutoff_week, line_dash="dash", line_color="orange", annotation_text=f"Week {cutoff_week} Cutoff")
-        else:
-            fig2.add_trace(go.Scatter(x=weekly_ticks, y=weekly_cpi, name='Predicted CPI', line=dict(color='#1a237e', width=2, dash='dash'), marker=dict(symbol='circle-open')))
-            fig2.add_trace(go.Scatter(x=weekly_ticks, y=weekly_spi, name='Predicted SPI', line=dict(color='#ad1457', width=2, dash='dash'), marker=dict(symbol='square-open')))
-
-        fig2.add_hline(y=1.0, line_dash="dot", line_color="black", annotation_text="Target Benchmark (1.0)")
-        fig2.update_layout(xaxis_title="Weeks", yaxis_title="KPI Ratios", height=500, yaxis_range=[0.6, 1.4])
-        st.plotly_chart(fig2, use_container_width=True)
-        
         st.subheader("Phase-by-Phase Prediction Summary")
         st.table(pd.DataFrame(table_rows))
