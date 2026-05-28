@@ -114,8 +114,37 @@ if assets:
         pv_acc, cur_ev, cur_ac = 0, 0, 0
         
         table_rows = []
-        
-        # --- CONTINUOUS EVM VECTORS (For Trends) ---
+
+        # 1. Populate Timeline Arrays First
+        for i, name in enumerate(phases_list):
+            ec, ed = total_cost * c_weights[i], int(round(total_time * t_weights[i]))
+            pv_acc += ec
+            days_planned_cum.append(days_planned_cum[-1] + ed)
+            pv_points.append(pv_acc)
+
+            if i in actual_data:
+                ac, ad = actual_data[i]['cost'], actual_data[i]['time']
+                cur_ev += ec
+                cur_ac += ac
+                status = "Actual"
+            else:
+                ac, ad = pred_costs[i], int(round(pred_days[i]))
+                status = "AI Prediction"
+            
+            reality_days.append(reality_days[i] + ad)
+            reality_costs.append(reality_costs[i] + ac)
+            if i < completed_phases_count: ev_points.append(cur_ev)
+            
+            table_rows.append({
+                "Phase": name,
+                "Status": status,
+                "Planned Cost (€)": f"{ec:,.0f}",
+                "Final Cost (€)": f"{ac:,.0f}",
+                "Planned Days": ed,
+                "Final Days": ad
+            })
+
+        # 2. CONTINUOUS EVM VECTORS (For Trends)
         total_planned_days = int(days_planned_cum[-1])
         total_actual_days = int(reality_days[-1])
         max_timeline_days = max(total_planned_days, total_actual_days)
@@ -170,34 +199,6 @@ if assets:
                 
             weekly_cpi.append(np.clip(w_cpi, 0.7, 1.3))
             weekly_spi.append(np.clip(w_spi, 0.7, 1.3))
-
-        for i, name in enumerate(phases_list):
-            ec, ed = total_cost * c_weights[i], int(round(total_time * t_weights[i]))
-            pv_acc += ec
-            days_planned_cum.append(days_planned_cum[-1] + ed)
-            pv_points.append(pv_acc)
-
-            if i in actual_data:
-                ac, ad = actual_data[i]['cost'], actual_data[i]['time']
-                cur_ev += ec
-                cur_ac += ac
-                status = "Actual"
-            else:
-                ac, ad = pred_costs[i], int(round(pred_days[i]))
-                status = "AI Prediction"
-            
-            reality_days.append(reality_days[i] + ad)
-            reality_costs.append(reality_costs[i] + ac)
-            if i < completed_phases_count: ev_points.append(cur_ev)
-            
-            table_rows.append({
-                "Phase": name,
-                "Status": status,
-                "Planned Cost (€)": f"{ec:,.0f}",
-                "Final Cost (€)": f"{ac:,.0f}",
-                "Planned Days": ed,
-                "Final Days": ad
-            })
 
         # --- PART 4: METRICS & VISUALIZATION ---
         st.header("Analysis Results")
